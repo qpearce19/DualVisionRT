@@ -1,5 +1,38 @@
-all:
-	gcc -o DualVisionRT main.c -lavutil -lavformat -lavcodec -lswscale -lz -lm -lswresample `sdl-config --cflags --libs`
+#
+# http://www.gnu.org/software/make/manual/make.html
+#
+CC:=gcc
+INCLUDES:=$(shell pkg-config --cflags libavformat libavcodec libswresample libswscale libavutil sdl)
+CFLAGS:=-Wall -ggdb
+LDFLAGS:=$(shell pkg-config --libs libavformat libavcodec libswresample libswscale libavutil sdl) -lm
+EXE:=main.out
+
+#
+# This is here to prevent Make from deleting secondary files.
+#
+.SECONDARY:
+	
+
+#
+# $< is the first dependency in the dependency list
+# $@ is the target name
+#
+all: dirs $(addprefix bin/, $(EXE)) tags
+
+dirs:
+	mkdir -p obj
+	mkdir -p bin
+
+tags: *.c
+	ctags *.c
+
+bin/%.out: obj/%.o
+	$(CC) $(CFLAGS) $< $(LDFLAGS) -o $@
+
+obj/%.o : %.c
+	$(CC) $(CFLAGS) $< $(INCLUDES) -c -o $@
 
 clean:
-	rm -rf DualVisionRT
+	rm -f obj/*
+	rm -f bin/*
+	rm -f tags
