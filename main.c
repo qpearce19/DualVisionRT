@@ -11,137 +11,109 @@ typedef int bool;
 #define false 0 
 
 int main(int argc, char *argv[]) {
-    AVFormatContext *pFormatCtx = NULL;
-	AVFormatContext *pFormatCtx2 = NULL; // 2nd video
- 
-    int             i, videoStream, videoStream2; // 2nd video
-    AVCodecContext  *pCodecCtx = NULL;
-	AVCodecContext	*pCodecCtx2 = NULL; // 2nd video
 
-    AVCodec         *pCodec = NULL;
-	AVCodec			*pCodec2 = NULL; // 2nd video
+	// Test input
+    if(argc < 3){
+        fprintf(stderr, "Usage: ./appName <file1> <file2> \n");
+        exit(1);
+    }
 
+	int i, videoStream, videoStream2;
+	int frameFinished, frameFinished2;
 
-    AVFrame         *pFrame = NULL;
-	AVFrame			*pFrame2 = NULL; // 2nd video
-    AVPacket        packet;
-	AVPacket		packet2; //2nd video
-    int             frameFinished, frameFinished2; // 2nd video
+	// First video
+    AVFormatContext 	*pFormatCtx = NULL;
+    AVCodecContext  	*pCodecCtx = NULL;
+    AVCodec         	*pCodec = NULL;
+    AVFrame         	*pFrame = NULL;
+    AVPacket        	packet;
+    AVDictionary    	*optionDict = NULL;
+    struct SwsContext 	*sws_ctx = NULL;
 
-    AVDictionary    *optionDict = NULL;
-	AVDictionary	*optionDict2 = NULL; // 2nd video
+	// Second video
+	AVFormatContext 	*pFormatCtx2 = NULL;
+	AVCodecContext		*pCodecCtx2 = NULL;
+	AVCodec				*pCodec2 = NULL;
+	AVFrame				*pFrame2 = NULL;
+	AVPacket			packet2;
+	AVDictionary		*optionDict2 = NULL;
+	struct SwsContext 	*sws_ctx2 = NULL;
 
-    struct SwsContext *sws_ctx = NULL;
-	struct SwsContext *sws_ctx2 = NULL;
-
+	// SDL Surface for show video
     SDL_Overlay     *bmp = NULL;
     SDL_Surface     *screen = NULL;
     SDL_Rect        rect;
     SDL_Event       event;
+	SDL_Surface		*display_level = NULL; //?
 
-	SDL_Surface* display_level = NULL;
-	//TTF_Font* font = TTF_OpenFont("even.ttf", 32);
-	//display_level = TTF_RenderText_Solid (font, "level: ", textColor);
-
-    if(argc < 3){
-        fprintf(stderr, "Usage: test <file> \n");
-        exit(1);
-    }
-
+	// Init ffmpeg and SDL
     av_register_all();
-
     if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER)){
         fprintf(stderr,"Could not initialize SDL - %s " + *SDL_GetError());
         exit(1);
     }
 
-    /**
-    *打开一个文件
-    */
+    // Try to open files
     if(avformat_open_input(&pFormatCtx, argv[1], NULL, NULL) != 0)
         return -1;
-
 	if(avformat_open_input(&pFormatCtx2, argv[2], NULL, NULL) != 0)
         return -1;
 
-    /**
-	 *为pFormatCtx->streams填充上正确的信息
-	 */
+    // Load and fill the correct information for pFormatCtx->streams
     if(avformat_find_stream_info(pFormatCtx, NULL) < 0)
         return -1;
-
 	if(avformat_find_stream_info(pFormatCtx2, NULL) < 0)
         return -1;
 
-    /**
-	 *手工调试函数，将文件信息在终端输出
-	 */
+    // Manual debugging function, the file information in the terminal output
     av_dump_format(pFormatCtx, 0, argv[1], 0);
-
 	av_dump_format(pFormatCtx2, 0, argv[2], 0);
 
-
+	// Try to find video stream1 and save his number
     videoStream=-1;
 	for ( i = 0; i < pFormatCtx->nb_streams; i++)
 	  if(pFormatCtx -> streams[i] -> codec -> codec_type == AVMEDIA_TYPE_VIDEO) {
 	    videoStream = i;
 	    break;
 	  }
-
 	if(videoStream == -1)
 	  return -1;
 
+	// Try to find video stream2 and save his number
 	videoStream2=-1;
 	for ( i = 0; i < pFormatCtx2->nb_streams; i++)
 	  if(pFormatCtx2 -> streams[i] -> codec -> codec_type == AVMEDIA_TYPE_VIDEO) {
 	    videoStream2 = i;
 	    break;
 	  }
-
 	if(videoStream2 == -1)
 	  return -1;
 
-
-
-    /**
-     *从 vedio stream 中获取对应的解码器上下文的指针
-     */
+	// Get the pointer to the corresponding decoder context from the video stream
     pCodecCtx = pFormatCtx -> streams[videoStream] -> codec;
-
 	pCodecCtx2 = pFormatCtx2 -> streams[videoStream2] -> codec;
 
-    /**
-     *根据 codec_id 找到对应的解码器
-     */
+    // Find the corresponding decoder according to codec_id
     pCodec = avcodec_find_decoder(pCodecCtx -> codec_id);
-
-    if(pCodec == NULL){
-        fprintf(stderr, "Unsupported codec ! \n");
-        return -1;
-    }
-
 	pCodec2 = avcodec_find_decoder(pCodecCtx2 -> codec_id);
 
-    if(pCodec2 == NULL){
+    if(pCodec == NULL || pCodec2 == NULL){
         fprintf(stderr, "Unsupported codec ! \n");
         return -1;
     }
 
-    /**
-     * 打开解码器
-     */
-    if(avcodec_open2(pCodecCtx, pCodec, &optionDict) <0 )
+    // Open apropriate decoders
+    if(avcodec_open2(pCodecCtx, pCodec, &optionDict) < 0)
+        return -1;
+	if(avcodec_open2(pCodecCtx2, pCodec2, &optionDict2) < 0)
         return -1;
 
-	if(avcodec_open2(pCodecCtx2, pCodec2, &optionDict2) <0 )
-        return -1;
-
-    /**
-     * 为frame 申请内存
-     */
+    // Allocate memory for frames
     pFrame = av_frame_alloc();
 	pFrame2 = av_frame_alloc();
 
+
+	// Configure screen
 	/*
     #ifdef __DARWIN__
         screen = SDL_SetVideoMode(pCodecCtx->width, pCodecCtx->height, 0, 0);
@@ -156,22 +128,23 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-
-	SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 255, 0, 0));
+	// Tried to fill rect to test markers. Doesn't works!
+	//SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 255, 0, 0));
 		
-    /**
-     * 申请一个 overlay , 将 yuv数据给 screen
-     */
+    // Applay for an overlay, the YUV data to the screen
     bmp = SDL_CreateYUVOverlay(pCodecCtx->width, pCodecCtx->height, SDL_YV12_OVERLAY, screen);
 
-    sws_ctx = sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height,
-                             AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL);
+    sws_ctx = sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt,
+							 pCodecCtx->width, pCodecCtx->height, AV_PIX_FMT_YUV420P,
+							 SWS_BILINEAR, NULL, NULL, NULL);
 
-	sws_ctx2 = sws_getContext(pCodecCtx2->width, pCodecCtx2->height, pCodecCtx2->pix_fmt, pCodecCtx2->width, pCodecCtx2->height,
-                             AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL);
+	sws_ctx2 = sws_getContext(pCodecCtx2->width, pCodecCtx2->height, pCodecCtx2->pix_fmt,
+							  pCodecCtx2->width, pCodecCtx2->height, AV_PIX_FMT_YUV420P,
+							  SWS_BILINEAR, NULL, NULL, NULL);
 
     i = 0;
 	bool numVideo = false;
+
 for (;;)
 {
     if (numVideo == false)
@@ -210,12 +183,10 @@ for (;;)
                 SDL_DisplayYUVOverlay(bmp, &rect);
 
 				//display_text (600, 600, font, display_level, screen);
-                SDL_Delay(10);
+                //SDL_Delay(1000);
 
             }
         }
-
-		
 
         av_free_packet(&packet);
         SDL_PollEvent(&event);
@@ -269,12 +240,10 @@ for (;;)
                 rect.h = pCodecCtx2->height;
 
                 SDL_DisplayYUVOverlay(bmp, &rect);
-                SDL_Delay(10);
+                //SDL_Delay(0.001);
 
             }
         }
-
-		
 
         av_free_packet(&packet2);
         SDL_PollEvent(&event);
@@ -296,26 +265,13 @@ for (;;)
 
 }
 
-
     av_free(pFrame);
-	av_free(pFrame2);
-    
 	avcodec_close(pCodecCtx);
+	avformat_close_input(&pFormatCtx);
+
+	av_free(pFrame2);
 	avcodec_close(pCodecCtx2);
-
-    avformat_close_input(&pFormatCtx);
 	avformat_close_input(&pFormatCtx2);
-
+    
     return 0;
 }
-/*
-void display_text (int x, int y, TTF_Font* font, SDL_Surface* text, SDL_Surface* destination){
-	SDL_Rect offset;
-
-	offset.x = x;
-	offset.y = y;
-
-	SDL_BlitSurface (text, NULL, destination, &offset);
-
-}
-*/
