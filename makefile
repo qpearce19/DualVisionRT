@@ -24,7 +24,7 @@ dirs:
 	mkdir -p bin
 
 tags: *.c
-	ctags *.c
+#	ctags *.c	# ctags can't find error 127
 
 bin/%.out: obj/%.o
 	$(CC) $(CFLAGS) $< $(LDFLAGS) -o $@
