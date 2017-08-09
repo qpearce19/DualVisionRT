@@ -35,12 +35,26 @@ typedef struct SdlState {
 int main(int argc, char *argv[]) {
 
 	// Test input.
-    if(argc < 3){
-        fprintf(stderr, "Usage: ./appName <file1> <file2> \n");
+    if(argc < 4){
+        fprintf(stderr, "Usage: ./main.out [parameters] <file1> <file2> \n");
+		fprintf(stderr, "Parameters:\n");
+		fprintf(stderr, "-11	play video with frames order 1-1-2-2 \n");
+		fprintf(stderr, "-12	play video with frames order 1-2-1-2 \n");			 
         exit(1);
     }
 
-	int delay = 10;
+	bool playMode = false;
+	if (strcmp(argv[1], "-11") == 0)
+		playMode = true;
+	else if (strcmp(argv[1], "-12") == 0)
+			 playMode = false;
+	else {
+			 fprintf(stderr, "Unknown parameter! \n");
+			 return -1;		
+		 }		
+			 	
+
+	int delay = 5;
 
     struct SwsContext 	*sws_ctx = NULL;
 	struct SwsContext	*sws_ctx2 = NULL;	
@@ -68,9 +82,9 @@ int main(int argc, char *argv[]) {
     }
 
     // Try to open files.
-    if(avformat_open_input(&vs1->pFormatCtx, argv[1], NULL, NULL) != 0)
+    if(avformat_open_input(&vs1->pFormatCtx, argv[2], NULL, NULL) != 0)
         return -1;
-	if(avformat_open_input(&vs2->pFormatCtx, argv[2], NULL, NULL) != 0)
+	if(avformat_open_input(&vs2->pFormatCtx, argv[3], NULL, NULL) != 0)
         return -1;
 
     // Load and fill the correct information for pFormatCtx->streams.
@@ -158,17 +172,28 @@ int main(int argc, char *argv[]) {
 
 	for (;;) {
 
-		if (showFrame(vs1, ss, sws_ctx, delay, 1) < 0)
-			return -1;
-/*
-		if (showFrame(vs1, ss, sws_ctx, delay, 1) < 0)
-			return -1;
+		if (playMode == true) {
+			if (showFrame(vs1, ss, sws_ctx, delay, 1) < 0)
+				return -1;
 
-		if (showFrame(vs2, ss, sws_ctx2, delay, 0) < 0)
-			return -1;
-*/
-		if (showFrame(vs2, ss, sws_ctx2, delay, 0) < 0)
-			return -1;		
+			if (showFrame(vs1, ss, sws_ctx, delay, 1) < 0)
+				return -1;
+
+			if (showFrame(vs2, ss, sws_ctx2, delay, 0) < 0)
+				return -1;
+
+			if (showFrame(vs2, ss, sws_ctx2, delay, 0) < 0)
+				return -1;	
+		}
+
+		if (playMode == false) {
+			if (showFrame(vs1, ss, sws_ctx, delay, 1) < 0)
+				return -1;
+
+			if (showFrame(vs2, ss, sws_ctx2, delay, 0) < 0)
+				return -1;
+		}
+				
 
         switch (ss->event.type) {
 
