@@ -8,7 +8,29 @@
 
 typedef int bool;
 #define true 1
-#define false 0 
+#define false 0
+
+typedef struct VideoState {
+	// First video.
+    AVFormatContext 	*pFormatCtx;
+    AVCodecContext  	*pCodecCtx;
+    AVCodec         	*pCodec;
+    AVFrame         	*pFrame;
+    AVPacket        	packet;
+    AVDictionary    	*optionDict;
+	int					videoStream;
+	int 				i;
+
+} VideoState; 
+
+typedef struct SdlState {
+	// SDL Surface for show video.
+    SDL_Overlay     	*bmp;
+    SDL_Surface     	*screen;
+    SDL_Rect        	rect;
+    SDL_Event       	event;
+	SDL_Rect			marker;
+} SdlState;
 
 int main(int argc, char *argv[]) {
 
@@ -18,40 +40,25 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-	int i, videoStream, videoStream2;
-	int frameFinished, frameFinished2;
+	int delay = 10;
 
-	// First video.
-    AVFormatContext 	*pFormatCtx = NULL;
-    AVCodecContext  	*pCodecCtx = NULL;
-    AVCodec         	*pCodec = NULL;
-    AVFrame         	*pFrame = NULL;
-    AVPacket        	packet;
-    AVDictionary    	*optionDict = NULL;
     struct SwsContext 	*sws_ctx = NULL;
+	struct SwsContext	*sws_ctx2 = NULL;	
 
-	// Second video.
-	AVFormatContext 	*pFormatCtx2 = NULL;
-	AVCodecContext		*pCodecCtx2 = NULL;
-	AVCodec				*pCodec2 = NULL;
-	AVFrame				*pFrame2 = NULL;
-	AVPacket			packet2;
-	AVDictionary		*optionDict2 = NULL;
-	struct SwsContext 	*sws_ctx2 = NULL;
+	VideoState *vs1;
+	vs1 = av_mallocz(sizeof(VideoState));
+	
+	VideoState *vs2;
+	vs2 = av_mallocz(sizeof(VideoState));
 
-	// SDL Surface for show video.
-    SDL_Overlay     *bmp = NULL;
-    SDL_Surface     *screen = NULL;
-    SDL_Rect        rect;
-    SDL_Event       event;
+	SdlState *ss;
+	ss = av_mallocz(sizeof(SdlState));
 
 	// SDL Rectangle - marker.
-	SDL_Rect marker;
-	marker.x = 0;
-	marker.y = 0;
-	marker.w = 25;
-	marker.h = 25;
-
+	ss->marker.x = 0;
+	ss->marker.y = 0;
+	ss->marker.w = 25;
+	ss->marker.h = 25;
 
 	// Init ffmpeg and SDL.
     av_register_all();
@@ -61,200 +68,109 @@ int main(int argc, char *argv[]) {
     }
 
     // Try to open files.
-    if(avformat_open_input(&pFormatCtx, argv[1], NULL, NULL) != 0)
+    if(avformat_open_input(&vs1->pFormatCtx, argv[1], NULL, NULL) != 0)
         return -1;
-	if(avformat_open_input(&pFormatCtx2, argv[2], NULL, NULL) != 0)
+	if(avformat_open_input(&vs2->pFormatCtx, argv[2], NULL, NULL) != 0)
         return -1;
 
     // Load and fill the correct information for pFormatCtx->streams.
-    if(avformat_find_stream_info(pFormatCtx, NULL) < 0)
+    if(avformat_find_stream_info(vs1->pFormatCtx, NULL) < 0)
         return -1;
-	if(avformat_find_stream_info(pFormatCtx2, NULL) < 0)
+	if(avformat_find_stream_info(vs2->pFormatCtx, NULL) < 0)
         return -1;
 
     // Manual debugging function, the file information in the terminal output.
-    av_dump_format(pFormatCtx, 0, argv[1], 0);
-	av_dump_format(pFormatCtx2, 0, argv[2], 0);
+    av_dump_format(vs1->pFormatCtx, 0, argv[1], 0);
+	av_dump_format(vs2->pFormatCtx, 0, argv[2], 0);
 
 	// Try to find video stream1 and save his number.
-    videoStream=-1;
-	for ( i = 0; i < pFormatCtx->nb_streams; i++)
-	  if(pFormatCtx -> streams[i] -> codec -> codec_type == AVMEDIA_TYPE_VIDEO) {
-	    videoStream = i;
+    vs1->videoStream=-1;
+	for (vs1->i = 0; vs1->i < vs1->pFormatCtx->nb_streams; vs1->i++)
+	  if(vs1->pFormatCtx->streams[vs1->i]->codec->codec_type == AVMEDIA_TYPE_VIDEO) {
+	    vs1->videoStream = vs1->i;
 	    break;
 	  }
-	if(videoStream == -1)
+	if(vs1->videoStream == -1)
 	  return -1;
 
 	// Try to find video stream2 and save his number.
-	videoStream2=-1;
-	for ( i = 0; i < pFormatCtx2->nb_streams; i++)
-	  if(pFormatCtx2 -> streams[i] -> codec -> codec_type == AVMEDIA_TYPE_VIDEO) {
-	    videoStream2 = i;
+	vs2->videoStream=-1;
+	for (vs2->i = 0; vs2->i < vs2->pFormatCtx->nb_streams; vs2->i++)
+	  if(vs2->pFormatCtx->streams[vs2->i]->codec->codec_type == AVMEDIA_TYPE_VIDEO) {
+	    vs2->videoStream = vs2->i;
 	    break;
 	  }
-	if(videoStream2 == -1)
+	if(vs2->videoStream == -1)
 	  return -1;
 
 	// Get the pointer to the corresponding decoder context from the video stream.
-    pCodecCtx = pFormatCtx -> streams[videoStream] -> codec;
-	pCodecCtx2 = pFormatCtx2 -> streams[videoStream2] -> codec;
+    vs1->pCodecCtx = vs1->pFormatCtx->streams[vs1->videoStream]->codec;
+	vs2->pCodecCtx = vs2->pFormatCtx->streams[vs2->videoStream]->codec;
 
     // Find the corresponding decoder according to codec_id.
-    pCodec = avcodec_find_decoder(pCodecCtx -> codec_id);
-	pCodec2 = avcodec_find_decoder(pCodecCtx2 -> codec_id);
+    vs1->pCodec = avcodec_find_decoder(vs1->pCodecCtx->codec_id);
+	vs2->pCodec = avcodec_find_decoder(vs2->pCodecCtx->codec_id);
 
-    if(pCodec == NULL || pCodec2 == NULL){
+    if(vs1->pCodec == NULL || vs2->pCodec == NULL){
         fprintf(stderr, "Unsupported codec ! \n");
         return -1;
     }
 
     // Open apropriate decoders.
-    if(avcodec_open2(pCodecCtx, pCodec, &optionDict) < 0)
+    if(avcodec_open2(vs1->pCodecCtx, vs1->pCodec, &vs1->optionDict) < 0)
         return -1;
-	if(avcodec_open2(pCodecCtx2, pCodec2, &optionDict2) < 0)
+	if(avcodec_open2(vs2->pCodecCtx, vs2->pCodec, &vs2->optionDict) < 0)
         return -1;
 
     // Allocate memory for frames.
-    pFrame = av_frame_alloc();
-	pFrame2 = av_frame_alloc();
+    vs1->pFrame = av_frame_alloc();
+	vs2->pFrame = av_frame_alloc();
 
 
 	// Configure screen.
-	/*
     #ifdef __DARWIN__
-        screen = SDL_SetVideoMode(pCodecCtx->width, pCodecCtx->height, 0, 0);
+        ss->screen = SDL_SetVideoMode(vs1->pCodecCtx->width, vs1->pCodecCtx->height, 0, 0);
     #else
-        screen = SDL_SetVideoMode(1024, 768, 24, 0);
+        ss->screen = SDL_SetVideoMode(vs1->pCodecCtx->width, vs1->pCodecCtx->height, 24, 0);
     #endif // __DARWIN__
-	*/
-	screen = SDL_SetVideoMode(pCodecCtx->width, pCodecCtx->height, 0, 0);
-    if(!screen){
+	//ss->screen = SDL_SetVideoMode(vs1->pCodecCtx->width, vs1->pCodecCtx->height, 0, 0);
+    if(!ss->screen){
         fprintf(stderr, "SDL : could not set video mode - exiting \n");
         exit(1);
     }
 		
     // Applay for an overlay, the YUV data to the screen.
-    bmp = SDL_CreateYUVOverlay(pCodecCtx->width, pCodecCtx->height, SDL_YV12_OVERLAY, screen);
+    ss->bmp = SDL_CreateYUVOverlay(vs1->pCodecCtx->width, vs1->pCodecCtx->height, SDL_YV12_OVERLAY, ss->screen);
 
-    sws_ctx = sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt,
-							 pCodecCtx->width, pCodecCtx->height, AV_PIX_FMT_YUV420P,
+    sws_ctx = sws_getContext(vs1->pCodecCtx->width, vs1->pCodecCtx->height, vs1->pCodecCtx->pix_fmt,
+							 vs1->pCodecCtx->width, vs1->pCodecCtx->height, AV_PIX_FMT_YUV420P,
 							 SWS_BILINEAR, NULL, NULL, NULL);
 
-	sws_ctx2 = sws_getContext(pCodecCtx2->width, pCodecCtx2->height, pCodecCtx2->pix_fmt,
-							  pCodecCtx2->width, pCodecCtx2->height, AV_PIX_FMT_YUV420P,
+	sws_ctx2 = sws_getContext(vs2->pCodecCtx->width, vs2->pCodecCtx->height, vs2->pCodecCtx->pix_fmt,
+							  vs2->pCodecCtx->width, vs2->pCodecCtx->height, AV_PIX_FMT_YUV420P,
 							  SWS_BILINEAR, NULL, NULL, NULL);
 
-    i = 0;
-	bool numVideo = false;
+	// Window
+	ss->rect.x = 0;
+    ss->rect.y = 25;
+    ss->rect.w = vs1->pCodecCtx->width;
+    ss->rect.h = vs1->pCodecCtx->height;
 
-for (;;)
-{
-    if (numVideo == false)
-	{
-		if (av_read_frame(pFormatCtx, &packet) < 0)
-			break;
+	for (;;) {
 
-        if(packet.stream_index == videoStream)
-		{
-            
-            avcodec_decode_video2(pCodecCtx, pFrame, &frameFinished, &packet);
+		if (showFrame(vs1, ss, sws_ctx, delay, 1) < 0)
+			return -1;
+/*
+		if (showFrame(vs1, ss, sws_ctx, delay, 1) < 0)
+			return -1;
 
-            if(frameFinished)
-			{
-                SDL_LockYUVOverlay(bmp);
+		if (showFrame(vs2, ss, sws_ctx2, delay, 0) < 0)
+			return -1;
+*/
+		if (showFrame(vs2, ss, sws_ctx2, delay, 0) < 0)
+			return -1;		
 
-                AVPicture pict;
-                pict.data[0] = bmp->pixels[0];
-                pict.data[1] = bmp->pixels[2];
-                pict.data[2] = bmp->pixels[1];
-
-                pict.linesize[0] = bmp->pitches[0];
-                pict.linesize[1] = bmp->pitches[2];
-                pict.linesize[2] = bmp->pitches[1];
-
-                sws_scale(sws_ctx, (uint8_t const * const *)pFrame->data, pFrame->linesize,
-                          0, pCodecCtx->height, pict.data, pict.linesize);
-
-                SDL_UnlockYUVOverlay(bmp);
-
-                rect.x = 0;
-                rect.y = 25;
-                rect.w = pCodecCtx->width;
-                rect.h = pCodecCtx->height;
-
-				showMarker(screen, marker, 255, 255, 255);		
-
-                SDL_DisplayYUVOverlay(bmp, &rect);
-
-                SDL_Delay(100);
-
-            }
-        }
-
-        av_free_packet(&packet);
-        SDL_PollEvent(&event);
-
-        switch (event.type) {
-
-            case SDL_QUIT:
-                SDL_Quit();
-                exit(0);
-                break;
-
-            default:
-                break;
-        }
-	
-	numVideo = true;
-    }
-	else
-	{
-	if (numVideo == true)
-	{
-		if(av_read_frame(pFormatCtx2, &packet2) < 0)
-			break;
-
-        if(packet.stream_index == videoStream2)
-		{
-            
-            avcodec_decode_video2(pCodecCtx2, pFrame2, &frameFinished2, &packet2);
-
-            if(frameFinished2)
-			{
-                SDL_LockYUVOverlay(bmp);
-
-                AVPicture pict2;
-                pict2.data[0] = bmp->pixels[0];
-                pict2.data[1] = bmp->pixels[2];
-                pict2.data[2] = bmp->pixels[1];
-
-                pict2.linesize[0] = bmp->pitches[0];
-                pict2.linesize[1] = bmp->pitches[2];
-                pict2.linesize[2] = bmp->pitches[1];
-
-                sws_scale(sws_ctx2, (uint8_t const * const *)pFrame2->data, pFrame2->linesize,
-                          0, pCodecCtx2->height, pict2.data, pict2.linesize);
-
-                SDL_UnlockYUVOverlay(bmp);
-
-                rect.x = 0;
-                rect.y = 25;
-                rect.w = pCodecCtx2->width;
-                rect.h = pCodecCtx2->height;
-
-				showMarker(screen, marker, 0, 0, 0);
-
-                SDL_DisplayYUVOverlay(bmp, &rect);
-                SDL_Delay(100);
-
-            }
-        }
-
-        av_free_packet(&packet2);
-        SDL_PollEvent(&event);
-
-        switch (event.type) {
+        switch (ss->event.type) {
 
             case SDL_QUIT:
                 SDL_Quit();
@@ -265,26 +181,69 @@ for (;;)
                 break;
         }
 
-	numVideo = false;
-    }
 	}
 
-}
+    av_free(vs1->pFrame);
+	avcodec_close(vs1->pCodecCtx);
+	avformat_close_input(&vs1->pFormatCtx);
 
-    av_free(pFrame);
-	avcodec_close(pCodecCtx);
-	avformat_close_input(&pFormatCtx);
-
-	av_free(pFrame2);
-	avcodec_close(pCodecCtx2);
-	avformat_close_input(&pFormatCtx2);
+	av_free(vs2->pFrame);
+	avcodec_close(vs2->pCodecCtx);
+	avformat_close_input(&vs2->pFormatCtx);
     
     return 0;
 }
 
-int showMarker(SDL_Surface *screen, SDL_Rect *marker, int r, int g, int b)
+void showMarker(SdlState *ss, bool color)
 {
-	SDL_FillRect(screen, &marker, SDL_MapRGB(screen->format, r, g, b));
+	int r = 0, g = 0, b = 0;
+	if (color) {
+		r = 0; g = 0; b = 0;
+	}
+	else {
+		r = 255; g = 255; b = 255;
+	}
+	SDL_FillRect(ss->screen, &ss->marker, SDL_MapRGB(ss->screen->format, r, g, b));
 	//SDL_Flip(screen);
-	SDL_UpdateRect(screen, 0, 0, 0, 0);	
+	SDL_UpdateRect(ss->screen, 0, 0, 0, 0);
 }
+
+
+int showFrame(VideoState *vs, SdlState *ss, struct SwsContext *sws_ctx, int delay, bool color)
+{
+	if (av_read_frame(vs->pFormatCtx, &vs->packet) < 0)
+		return -1;//break;
+
+	int frameFinished = 0;
+   	if(vs->packet.stream_index == vs->videoStream) {
+		avcodec_decode_video2(vs->pCodecCtx, vs->pFrame, &frameFinished, &vs->packet);
+        if(frameFinished) {
+            SDL_LockYUVOverlay(ss->bmp);
+
+            AVPicture pict;
+            pict.data[0] = ss->bmp->pixels[0];
+            pict.data[1] = ss->bmp->pixels[2];
+            pict.data[2] = ss->bmp->pixels[1];
+
+            pict.linesize[0] = ss->bmp->pitches[0];
+            pict.linesize[1] = ss->bmp->pitches[2];
+            pict.linesize[2] = ss->bmp->pitches[1];
+
+			// Convert the image into YUV format that SDL uses.
+            sws_scale(sws_ctx, (uint8_t const * const *)vs->pFrame->data, vs->pFrame->linesize,
+                      0, vs->pCodecCtx->height, pict.data, pict.linesize);
+
+            SDL_UnlockYUVOverlay(ss->bmp);
+
+			showMarker(ss, color);		
+
+            SDL_DisplayYUVOverlay(ss->bmp, &ss->rect);
+            SDL_Delay(delay);
+        }
+    }
+	SDL_PollEvent(&ss->event);
+    av_free_packet(&vs->packet);
+
+	return 0;
+}
+

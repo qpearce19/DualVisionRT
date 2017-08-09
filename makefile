@@ -1,7 +1,7 @@
 #
 # http://www.gnu.org/software/make/manual/make.html
 #
-CC:=gcc
+CC:=gcc 
 INCLUDES:=$(shell pkg-config --cflags libavformat libavcodec libswresample libswscale libavutil sdl)
 CFLAGS:=-Wall -ggdb
 LDFLAGS:=$(shell pkg-config --libs libavformat libavcodec libswresample libswscale libavutil sdl) -lm
